@@ -1,164 +1,128 @@
 # Simple Chat Application Using Redis
 
-A Spring Boot REST API for creating chat rooms, joining as a participant, sending messages, and reading recent chat history. Redis stores room data and messages, and Redis Pub/Sub broadcasts each new message to subscribers of that room.
+A Java 21 and Spring Boot REST API for creating chat rooms, joining participants, sending messages, and retrieving recent chat history. Redis stores room metadata, participants, and messages; Redis Pub/Sub broadcasts new messages to active subscribers.
 
-This project has no user interface. You can use the API with Postman, `curl`, or PowerShell.
+**The API has no user interface. This guide uses Postman for all API requests.**
 
 ## Features
 
-- Create uniquely named chat rooms
-- Join a room and keep track of its participants
-- Send messages and retrieve the latest N messages in chronological order
-- Publish new messages to a room-specific Redis Pub/Sub channel
-- Return clear errors for duplicate rooms, missing rooms, and invalid requests
-- Delete a room and its Redis data
-- Persist Redis data with append-only file (AOF) enabled in Docker Compose
+- Create uniquely named chat rooms and join participants
+- Send messages and retrieve the last N messages in chronological order
+- Broadcast new messages through room-specific Redis Pub/Sub channels
+- Validate requests and return useful errors for duplicates and missing rooms
+- List room participants and delete a room
+- Enable Redis AOF persistence when using the provided Docker Compose setup
 
-## Technology
+## Requirements
 
-- Java 21
-- Spring Boot 3
-- Spring Data Redis with Lettuce
-- Redis 7
-- Maven
+- Java 21 or later
+- Maven 3.9 or later
+- Docker Desktop with Docker Compose, or a separately running Redis 7 instance
+- Postman
 
-## 1. Prerequisites
+## Start Redis and the application
 
-Install:
+### Option A: Run everything with Docker Compose
 
-- JDK 21 or newer
-- Maven 3.9 or newer
-- Redis 7, or Docker Desktop to run Redis in a container
+1. Start Docker Desktop.
+2. Open a terminal in the project folder.
+3. Run:
 
-Confirm Java and Maven are available in PowerShell:
+   ```bash
+   docker compose up --build
+   ```
 
-```powershell
-java -version
-mvn -version
-```
+4. Wait until both the `redis` and `app` services are running. The API is available at `http://localhost:8080`.
+5. Keep this terminal open while testing. Stop the services with `Ctrl+C`.
 
-## 2. Get Redis running
+Docker Compose enables Redis append-only file persistence and stores data in a named volume. To run the services in the background, use `docker compose up --build -d`; to stop them later, run `docker compose down`.
 
-### Recommended: Docker Desktop
+### Option B: Run Redis and the API separately
 
-Start Docker Desktop. From the project folder, run:
+1. Start Redis on `localhost:6379` (or note your Redis host and port).
+2. Open a terminal in the project folder and start the Spring Boot API:
 
-```powershell
-docker compose up -d redis
-docker compose ps
-```
+   ```bash
+   mvn spring-boot:run
+   ```
 
-Wait until Redis is shown as running/healthy. It listens on `localhost:6379`. The Compose setup enables AOF persistence and stores Redis data in the `redis-data` Docker volume.
+3. The API is available at `http://localhost:8080`.
 
-### Use an existing Redis server
+The application defaults to Redis at `localhost:6379` and API port `8080`. The Docker Compose setup configures the app container to connect to the `redis` service automatically.
 
-Start Redis separately and note its host and port. The application defaults to `localhost:6379`; configure different values in the next step if needed.
+## Test with Postman
 
-## 3. Start the application
+### 1. Create a Postman collection
 
-Open a second PowerShell window in the project folder and run:
+1. Open Postman and select **New → Collection**.
+2. Name it **Redis Chat API**.
+3. Select the collection’s **Variables** tab and add:
+   - Variable: `baseUrl`; Initial value: `http://localhost:8080/api/chatapp/chatrooms`; Current value: `http://localhost:8080/api/chatapp/chatrooms`
+   - Variable: `roomId`; Initial value: `general`; Current value: `general`
+4. Save the collection.
 
-```powershell
-mvn spring-boot:run
-```
+Use `{{baseUrl}}` and `{{roomId}}` in the request URLs below. For each POST request, select **Body → raw → JSON**. Postman will set `Content-Type: application/json`.
 
-The API is available at `http://localhost:8080`. Keep this terminal open while using the API.
+### 2. Create a room
 
-To specify custom ports, set environment variables before starting Spring Boot:
+- Method: `POST`
+- URL: `{{baseUrl}}`
+- Body:
 
-```powershell
-$env:REDIS_HOST = "localhost"
-$env:REDIS_PORT = "6379"
-$env:SERVER_PORT = "8080"
-mvn spring-boot:run
-```
+  ```json
+  {
+    "roomName": "{{roomId}}"
+  }
+  ```
 
-## 4. Make requests
+Click **Send**. Expected: `201 Created`.
 
-The base URL is:
-
-```text
-http://localhost:8080/api/chatapp/chatrooms
-```
-
-The examples below use PowerShell. In Postman, use the same HTTP methods, URLs, and JSON bodies, and set `Content-Type` to `application/json` for POST requests.
-
-### Step 1: Create a room
-
-**POST** `/api/chatapp/chatrooms`
+Example response:
 
 ```json
 {
-  "roomName": "general"
+  "message": "Chatroom 'general' created successfully.",
+  "status": "success",
+  "roomId": "general"
 }
 ```
 
-PowerShell:
+### 3. Join the room
 
-```powershell
-Invoke-RestMethod -Method Post `
-  -Uri "http://localhost:8080/api/chatapp/chatrooms" `
-  -ContentType "application/json" `
-  -Body '{"roomName":"general"}'
-```
+- Method: `POST`
+- URL: `{{baseUrl}}/{{roomId}}/join`
+- Body:
 
-The API returns HTTP `201 Created` with the room ID and a success message.
+  ```json
+  {
+    "participant": "guest_user"
+  }
+  ```
 
-### Step 2: Join as a participant
+Expected: `200 OK`.
 
-**POST** `/api/chatapp/chatrooms/general/join`
+### 4. Send a message
 
-```json
-{
-  "participant": "guest_user"
-}
-```
+- Method: `POST`
+- URL: `{{baseUrl}}/{{roomId}}/messages`
+- Body:
 
-PowerShell:
+  ```json
+  {
+    "participant": "guest_user",
+    "message": "Hello, everyone!"
+  }
+  ```
 
-```powershell
-Invoke-RestMethod -Method Post `
-  -Uri "http://localhost:8080/api/chatapp/chatrooms/general/join" `
-  -ContentType "application/json" `
-  -Body '{"participant":"guest_user"}'
-```
+Expected: `200 OK`. Send another message with a different message value so you can check history ordering. Joining records membership but is not an authentication check; this sample has no authentication.
 
-Joining records the participant in the room. This sample has no authentication, so joining is not an authorization check for sending messages.
+### 5. Retrieve recent messages
 
-### Step 3: Send messages
+- Method: `GET`
+- URL: `{{baseUrl}}/{{roomId}}/messages?limit=10`
+- No request body is needed.
 
-**POST** `/api/chatapp/chatrooms/general/messages`
-
-```json
-{
-  "participant": "guest_user",
-  "message": "Hello, everyone!"
-}
-```
-
-PowerShell:
-
-```powershell
-Invoke-RestMethod -Method Post `
-  -Uri "http://localhost:8080/api/chatapp/chatrooms/general/messages" `
-  -ContentType "application/json" `
-  -Body '{"participant":"guest_user","message":"Hello, everyone!"}'
-```
-
-Send another message by changing the participant and message fields. A successful request returns HTTP `200 OK`.
-
-### Step 4: Read recent messages
-
-**GET** `/api/chatapp/chatrooms/general/messages?limit=10`
-
-PowerShell:
-
-```powershell
-Invoke-RestMethod -Method Get `
-  -Uri "http://localhost:8080/api/chatapp/chatrooms/general/messages?limit=10"
-```
-
-The response contains up to the latest 10 messages, ordered from oldest to newest within that selection. The default limit is 50; valid values are from 0 to 500.
+Expected: `200 OK`. The response contains up to the latest 10 messages, oldest to newest within that selection. The default limit is 50; allowed values are 0–500.
 
 Example response:
 
@@ -174,121 +138,94 @@ Example response:
 }
 ```
 
-### Step 5: List participants (additional endpoint)
+### 6. List room participants
 
-**GET** `/api/chatapp/chatrooms/general/participants`
+- Method: `GET`
+- URL: `{{baseUrl}}/{{roomId}}/participants`
+- No request body is needed.
 
-```powershell
-Invoke-RestMethod -Method Get `
-  -Uri "http://localhost:8080/api/chatapp/chatrooms/general/participants"
+Expected: `200 OK`, with the participant IDs that joined the room.
+
+### 7. Check error handling
+
+**Duplicate room:** Send the create-room request from Step 2 again without changing the room name. Expected: `409 Conflict`.
+
+**Room does not exist:** Send a POST request to `{{baseUrl}}/missing-room/messages` with this JSON body. Expected: `404 Not Found`.
+
+```json
+{
+  "participant": "guest_user",
+  "message": "This room does not exist"
+}
 ```
 
-### Step 6: Delete a room (additional endpoint)
+**Invalid history limit:** Send a GET request to `{{baseUrl}}/{{roomId}}/messages?limit=900`. Expected: `400 Bad Request`.
 
-**DELETE** `/api/chatapp/chatrooms/general`
+### 8. Delete a room (optional)
 
-```powershell
-Invoke-RestMethod -Method Delete `
-  -Uri "http://localhost:8080/api/chatapp/chatrooms/general"
-```
+- Method: `DELETE`
+- URL: `{{baseUrl}}/{{roomId}}`
+- No request body is needed.
 
-Deleting a room removes its metadata, participants, and message history.
+Expected: `200 OK`. This removes the room metadata, participant set, and message history. After deletion, room-specific operations return `404 Not Found`.
 
 ## API reference
 
-| Method | Endpoint | Request body / query | Description |
+| Method | Endpoint | Request body or query | Description |
 |---|---|---|---|
 | `POST` | `/api/chatapp/chatrooms` | `{"roomName":"general"}` | Create a room |
-| `POST` | `/api/chatapp/chatrooms/{roomId}/join` | `{"participant":"guest_user"}` | Add a participant to a room |
+| `POST` | `/api/chatapp/chatrooms/{roomId}/join` | `{"participant":"guest_user"}` | Join a room |
 | `POST` | `/api/chatapp/chatrooms/{roomId}/messages` | `{"participant":"guest_user","message":"Hello"}` | Store and publish a message |
-| `GET` | `/api/chatapp/chatrooms/{roomId}/messages?limit=10` | Optional `limit` (0–500; default 50) | Read the latest messages |
-| `GET` | `/api/chatapp/chatrooms/{roomId}/participants` | — | List room participants |
-| `DELETE` | `/api/chatapp/chatrooms/{roomId}` | — | Delete room data |
+| `GET` | `/api/chatapp/chatrooms/{roomId}/messages?limit=10` | Optional `limit` from 0 to 500; default 50 | Retrieve recent messages |
+| `GET` | `/api/chatapp/chatrooms/{roomId}/participants` | — | List participants |
+| `DELETE` | `/api/chatapp/chatrooms/{roomId}` | — | Delete a room and its data |
 
-### Input rules
+Room names and participant IDs are required, up to 64 characters, and may contain letters, numbers, underscores, and hyphens. Message text is required and limited to 4,000 characters.
 
-- Room names and participant IDs are required and may contain letters, numbers, `_`, or `-` (up to 64 characters).
-- Message text is required and may be up to 4,000 characters.
-- The message-history limit must be between 0 and 500.
+## Redis data and real-time messages
 
-### Error responses
-
-| Situation | HTTP status |
-|---|---:|
-| Duplicate room name | `409 Conflict` |
-| Room does not exist | `404 Not Found` |
-| Invalid JSON, fields, or query values | `400 Bad Request` |
-
-Errors include `status: "error"` and a readable message. Validation errors also include an `errors` object with field-specific details.
-
-## Redis data model and Pub/Sub
-
-| Redis key/channel | Data type | Contents |
+| Redis key or channel | Type | Contents |
 |---|---|---|
 | `chat:room:{roomId}:metadata` | Hash | Room ID and creation timestamp |
 | `chat:room:{roomId}:participants` | Set | Participant IDs |
 | `chat:room:{roomId}:messages` | List | JSON messages in insertion order |
 | `chat:messages:{roomId}` | Pub/Sub channel | New message events for that room |
 
-Each stored message contains `participant`, `message`, and an ISO-8601 UTC `timestamp`. The application listens to `chat:messages:*` and logs received events. Redis Pub/Sub only delivers to active subscribers; message history is read from the Redis list.
+Messages contain `participant`, `message`, and an ISO-8601 UTC `timestamp`. The application subscribes to `chat:messages:*` and logs received events. Redis Pub/Sub delivers events only to active subscribers; use the message list for stored history. To see the application's Pub/Sub logs while using Docker Compose, run `docker compose logs -f app` in a terminal.
 
-To inspect a room channel manually, open a terminal with `redis-cli` and run:
+## Build and tests
 
-```text
-SUBSCRIBE chat:messages:general
-```
+Run the test suite:
 
-Then send a message to `general` using the API. The subscriber terminal will display the published event.
-
-## Run the whole stack with Docker Compose
-
-If Docker Desktop is running, you can build and start both the API and Redis together:
-
-```powershell
-docker compose up --build
-```
-
-When both services are up, use `http://localhost:8080`. Stop the stack with `Ctrl+C`, or from another terminal run:
-
-```powershell
-docker compose down
-```
-
-This keeps the Redis volume. To remove the stored Redis data as well:
-
-```powershell
-docker compose down -v
-```
-
-## Build and run tests
-
-```powershell
+```bash
 mvn test
 ```
 
 Build the runnable JAR:
 
-```powershell
+```bash
 mvn package
 ```
 
-The JAR is created under `target/`.
+The JAR is created in the `target/` directory.
 
 ## Troubleshooting
 
-**The application cannot connect to Redis**
+**Postman cannot connect to `localhost:8080`**
 
-- Confirm Redis is running with `docker compose ps` or your Redis server's status command.
-- Confirm `REDIS_HOST` and `REDIS_PORT` point to the Redis instance.
-- When the API runs on your computer, use `localhost` for a local Docker Redis port mapping. When both services run in Compose, the app uses the `redis` service name automatically.
+- Confirm the `app` service is running (`docker compose ps`) or that Spring Boot is still running in its terminal.
+- If using Docker Compose, wait for the app to finish starting before sending the request.
+- Check whether another application is already using port `8080`.
 
-**Docker commands are not recognized**
+**The app cannot connect to Redis**
 
-- Install and start Docker Desktop, or run Redis outside Docker and configure `REDIS_HOST` / `REDIS_PORT`.
+- Confirm Redis is running and healthy (`docker compose ps`).
+- With Docker Compose, the app connects to the Redis service automatically.
+- When running the app outside Compose, the default Redis address is `localhost:6379`.
 
-**A room name is already in use**
+**Room already exists**
 
-- Room names must be unique. Choose a different name, or delete the existing room before creating it again.
+- Room names must be unique. Change the `roomId` collection variable to use a different room, or delete the existing room using Step 8.
 
 ## Project structure
 
