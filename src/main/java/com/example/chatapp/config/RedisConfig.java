@@ -13,7 +13,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.serializer.RedisSerializer;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 @Configuration
@@ -24,8 +24,7 @@ public class RedisConfig {
         RedisTemplate<String, ChatMessage> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
         StringRedisSerializer strings = new StringRedisSerializer(StandardCharsets.UTF_8);
-        @SuppressWarnings("unchecked")
-        RedisSerializer<ChatMessage> messages = (RedisSerializer<ChatMessage>) (RedisSerializer<?>) new GenericJackson2JsonRedisSerializer(objectMapper);
+        RedisSerializer<ChatMessage> messages = new Jackson2JsonRedisSerializer<>(objectMapper, ChatMessage.class);
         template.setKeySerializer(strings);
         template.setHashKeySerializer(strings);
         template.setValueSerializer(messages);
